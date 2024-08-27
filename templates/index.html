@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>5x5 Chess Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+        }
+        .board {
+            display: grid;
+            grid-template-columns: repeat(5, 100px);
+            grid-gap: 2px;
+            background-color: #2c2c2c;
+            padding: 5px;
+            margin-right: 20px;
+        }
+        .cell {
+            width: 100px;
+            height: 100px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            background-color: #2c2c2c;
+            color: white;
+            border: 2px solid white;
+            box-sizing: border-box;
+        }
+        .white-piece {
+            color: #ffffff;
+        }
+        .black-piece {
+            color: #000000;
+        }
+        .button {
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+        }
+        #history {
+            max-width: 300px;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            padding: 10px;
+            overflow-y: auto;
+            height: 400px; /* Fixed height for scroll */
+        }
+        .notification {
+            display: none;
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .notification.show {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="history"></div>
+        <div>
+            <h1>5x5 Chess Game</h1>
+            <div id="board" class="board"></div>
+            <div id="buttons"></div>
+            <div id="turn">Current Turn: Player 1</div>
+        </div>
+    </div>
+    <div id="notification" class="notification"></div>
+
+    <script>
+        let selectedPiece = null;
+        let selectedPos = null;
+        let currentPlayer = 'Player 1';
+        let moveHistory = [];
+
+        document.addEventListener("DOMContentLoaded", function() {
+            fetchGameState();
+        });
+
+        function fetchGameState() {
+            fetch('/game_state')
+                .then(response => response.json())
+                .then(data => {
+                    drawBoard(data.board);
+                    document.getElementById('turn').textContent = "Current Turn: " + data.current_player;
+                    currentPlayer = data.current_player;
+                })
+                .catch(error => console.error('Error fetching game state:', error));
+        }
+
+        function drawBoard(board) {
+            const boardDiv = document.getElementById('board');
+            boardDiv.innerHTML = ''; // Clear the board before redrawing
+
+            board.forEach((row, rowIndex) => {
+                row.forEach((cellContent, colIndex) => {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+
+                    if (cellContent !== '.') {
+                        cell.classList.add(cellContent.toUpperCase() === cellContent ? 'white-piece' : 'black-piece');
+                    }
+
+                    cell.textContent = cellContent !== '.' ? cellContent : '';
+                    cell.onclick = () => handleCellClick(rowIndex, colIndex, cellContent);
+                    boardDiv.appendChild(cell);
+                });
+            });
+        }
+
+        function handleCellClick(row, col, piece) {
+            if (!selectedPiece) {
+                selectPiece(row, col, piece);
+            } else {
+                showMoveButtons(piece);
+            }
+        }
+
+        function selectPiece(row, col, piece) {
+            fetch('/select_piece', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({row: row, col: col})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.valid) {
+                    selectedPiece = piece;
+                    selectedPos = { row, col };
+                    showMoveButtons(data.piece);
+                } else {
+                    showNotification(data.message, 'error');
+                }
+            })
+            .catch(error => console.error('Error selecting piece:', error));
+        }
+
+        function showMoveButtons(piece) {
+            const buttonsDiv = document.getElementById('buttons');
+            buttonsDiv.innerHTML = ''; // Clear previous buttons
+
+            const moves = piece.toLowerCase() === 'p1' || piece.toLowerCase() === 'p2' || piece.toLowerCase() === 'p3' || 
+                          piece.toLowerCase() === 'p4' || piece.toLowerCase() === 'p5' || piece.toLowerCase() === 'p6' ? 
+                          ['L', 'R', 'F', 'B'] :
+                          piece.toLowerCase() === 'h1' ? 
+                          ['L', 'R', 'F', 'B'] : 
+                          ['FL', 'FR', 'BL', 'BR'];
+
+            moves.forEach(move => {
+                const button = document.createElement('button');
+                button.textContent = move;
+                button.className = 'button';
+                button.onclick = () => makeMove(selectedPos.row, selectedPos.col, move);
+                buttonsDiv.appendChild(button);
+            });
+        }
+
+        function makeMove(x, y, move) {
+            fetch('/move_piece', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({x: x, y: y, move: move})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    selectedPiece = null; // Deselect after a successful move
+                    addMoveToHistory(x, y, move);
+                    fetchGameState(); // Refresh the game state after a move
+                } else {
+                    showNotification(data.message, 'error');
+                }
+            })
+            .catch(error => console.error('Error making move:', error));
+        }
+
+        function addMoveToHistory(x, y, move) {
+            moveHistory.push(`Player ${currentPlayer} moved piece at (${x}, ${y}) with move '${move}'`);
+            const historyDiv = document.getElementById('history');
+            historyDiv.innerHTML = moveHistory.map(entry => `<p>${entry}</p>`).join('');
+        }
+
+        function showNotification(message, type) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.className = `notification ${type === 'error' ? 'show' : ''}`;
+            setTimeout(() => notification.classList.remove('show'), 3000);
+        }
+    </script>
+</body>
+</html>
